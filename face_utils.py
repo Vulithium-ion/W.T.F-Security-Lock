@@ -7,8 +7,15 @@ from deepface import DeepFace
 
 REGISTER_PICTURE_COUNT = 30
 REGISTER_PICTURE_INTERVAL = .33
-model = DeepFace.build_model("Facenet")
+#model = DeepFace.build_model("Facenet")
 detector_backend = "retinaface"
+DeepFace.find(img_path="./pic/.jpg",
+              db_path="./database/", 
+              model_name = "Facenet",
+              enforce_detection=False,
+              distance_metric="cosine",
+              detector_backend=detector_backend
+)
 
 
 def register_face():
@@ -40,8 +47,10 @@ def check_face(path):
         print("found")
         #print("匹配图像路径：", result[0].iloc[0]['identity'])
         #print("距离（越小越像）：", result[0].iloc[0]['distance'])
+        return True
     else:
         print("Nah")
+        return False
 
 
 def check_face_camera():

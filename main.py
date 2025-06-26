@@ -11,7 +11,9 @@ from PyQt5.QtWidgets import QApplication, QWidget
 
 checkInterval = 5
 stopEvent = threading.Event()
+isUser = False
 cap = cv2.VideoCapture(0)
+check_once = None
 
 
 class FullscreenWindow(QWidget):
@@ -21,22 +23,54 @@ class FullscreenWindow(QWidget):
         self.setWindowState(Qt.WindowFullScreen)
 
 
+# def check_face_once():
+#     print("Opened! check!")
+#     global cap
+#     cap.grab()
+#     ret, frame = cap.read()
+#     if(ret):
+#         cv2.imwrite("./test.jpg", frame)
+#         if(not face_utils.check_face("./test.jpg")):
+#             print("attacker!")
+#             #app.open_window()
+#         else:
+#             print("User!")
+#     time.sleep(100)
+
+
+def check_face_once():
+    global isUser
+    if(not isUser):
+        app.start_lock()
+    time.sleep(100)
+
+
 def listen():
-    file_to_watch = '/home/Fox/code/WTF_Security_Lock/'
+    global check_once
+    file_to_watch = '/home/Fox/code/tmp/'
     i = inotify.adapters.Inotify()
     i.add_watch('{}'.format(file_to_watch))
 
     print("Listening for events in {}".format(file_to_watch))
-    for event in i.event_gen(yield_nones=False):
-        (_, event_types, path, filename) = event
-        if 'IN_ACCESS' in event_types:
-            print(f"🔔 目录访问了: {path}")
-        elif 'IN_OPEN' in event_types:
-            print(f"📂 目录被打开: {path}")
+    for event in i.event_gen(yield_nones=True):
+        start_time = time.time()
+        if(event):
+            (_, event_types, path, filename) = event
+            if 'IN_ACCESS' in event_types or 'IN_OPEN' in event_types:
+                print("目录访问了: {}, {}".format(path, start_time))
+                if(check_once is None or not check_once.is_alive()):
+                    check_once = threading.Thread(target=check_face_once)
+                    check_once.start()
+        else:
+            if stopEvent.wait(
+                timeout=max(0, .01 - time.time() + start_time)
+            ):
+                break
 
 
-def check_face():
+def check_face_loop():
     global cap
+    global isUser
     global checkInterval
     while(True):
         start_time = time.time()
@@ -45,15 +79,14 @@ def check_face():
         ret, frame = cap.read()
         if(ret):
             cv2.imwrite("./test.jpg", frame)
-        face_utils.check_face("./test.jpg")
+        isUser = face_utils.check_face("./test.jpg")
 
         if stopEvent.wait(
             timeout=max(0, checkInterval - time.time() + start_time)
         ):
             break
 
-    cap.release()
-    print("quit")
+    print("check quited")
 
 
 def mask():
@@ -67,29 +100,40 @@ def mask():
 
 
 class WorkerThread(QThread):
-    signal_open_window = pyqtSignal()
-    signal_close_window = pyqtSignal()
-    signal_exit_program = pyqtSignal()
+    # def run(self):
+    #     print("启动！")
+    #     self.signal_open_window.emit()
+    #     self.sleep(5)
+    #     print("关闭！")
+    #     self.signal_close_window.emit()
+    #     self.sleep(5)
+    #     print("退出！")
+    #     self.signal_exit_program.emit()
 
     def run(self):
-        print("启动！")
-        self.signal_open_window.emit()
-        self.sleep(5)
-        print("关闭！")
-        self.signal_close_window.emit()
-        self.sleep(5)
-        print("退出！")
-        self.signal_exit_program.emit()
+        print("子线程启动！！")
+        while(True):
+            print(isUser)
+            time.sleep(1)
 
 
 class Main:
     def __init__(self):
         self.app = QApplication(sys.argv)
         self.window = None
-        self.worker_thread = WorkerThread()
-        self.worker_thread.signal_open_window.connect(self.open_window)
-        self.worker_thread.signal_close_window.connect(self.close_window)
-        self.worker_thread.signal_exit_program.connect(self.exit_program)
+        self.worker_thread = None
+        self.listener = threading.Thread(target=listen)
+        self.checker = threading.Thread(target=check_face_loop)
+    
+    
+    def start_lock(self):
+        self.open_window()
+        global checkInterval
+        checkInterval = 2
+        if(self.worker_thread is None or not self.worker_thread.isRunning()):
+            self.worker_thread = WorkerThread()
+            self.worker_thread.start()
+
     
     def open_window(self):
         if not self.window or not self.window.isVisible():
@@ -103,31 +147,22 @@ class Main:
             self.window = None
 
     def exit_program(self):
+        global stopEvent
+        stopEvent.set()
+        self.checker.join()
+        self.listener.join()
         if self.worker_thread.isRunning():
             self.worker_thread.quit()
             self.worker_thread.wait()
         self.app.quit()
+        global cap
+        cap.release()
 
     def run(self):
-        time.sleep(5)
-        print("就决定是你了，子线程！")
-        self.worker_thread.start()
+        self.checker.start()
+        self.listener.start()
+        print("开始监听！")
         sys.exit(self.app.exec_())
-
-
-def main():
-    listener = threading.Thread(target=listen)
-    checker = threading.Thread(target=check_face)
-
-    checker.start()
-    try:
-        while True:
-            time.sleep(0.5)
-    except KeyboardInterrupt:
-        print("主线程捕获到 KeyboardInterrupt，发送停止信号...")
-        stopEvent.set()
-
-    checker.join()
 
 
 if __name__ == '__main__':
