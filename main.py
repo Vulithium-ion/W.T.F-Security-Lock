@@ -4,7 +4,7 @@ import time
 import threading
 import face_utils
 import inotify.adapters
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QEvent, QPropertyAnimation
 from PyQt5.QtGui import QKeyEvent, QMouseEvent
 from PyQt5.QtWidgets import QApplication, QWidget
 
@@ -20,8 +20,9 @@ lockOn = False
 class FullscreenWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowFlag(Qt.FramelessWindowHint)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setWindowState(Qt.WindowFullScreen)
+        self.animation = QPropertyAnimation(self, b"geometry")
 
 
 class ListenThread(QThread):
@@ -77,24 +78,26 @@ def check_face_loop():
 
 class WorkerThread(QThread):
     signal_stop = pyqtSignal()
+    signal_re = pyqtSignal()
 
     def run(self):
         print("子线程启动！！")
         while(True):
-            print(isUser)
-            if(isUser):
-                print("emit!")
-                self.signal_stop.emit()
-                print("emit done!")
-                return 
-            time.sleep(1)
+            if(lockOn):
+                self.signal_re.emit()
+                print(isUser)
+                if(isUser):
+                    print("emit!")
+                    self.signal_stop.emit()
+                    print("emit done!")
+            time.sleep(.5)
 
 
 class Main:
     def __init__(self):
         self.app = QApplication(sys.argv)
         self.window = None
-        self.worker_thread = None
+        self.worker_thread = WorkerThread()
         self.listener = ListenThread()
         self.checker = threading.Thread(target=check_face_loop)
     
@@ -104,10 +107,6 @@ class Main:
         self.open_window()
         global checkInterval
         checkInterval = 2
-        if(self.worker_thread is None or not self.worker_thread.isRunning()):
-            self.worker_thread = WorkerThread()
-            self.worker_thread.signal_stop.connect(self.quit_lock)
-            self.worker_thread.start()
 
     def quit_lock(self):
         print("quit lock!")
@@ -115,10 +114,11 @@ class Main:
         global checkInterval
         lockOn = False
         checkInterval = 5
-        self.worker_thread.quit()
-        self.worker_thread.wait()
-        self.worker_thread = None
         self.close_window()
+
+    def reopen_window(self):
+        self.close_window()
+        self.open_window()
     
     def open_window(self):
         if not self.window or not self.window.isVisible():
@@ -127,9 +127,11 @@ class Main:
 
     def close_window(self):
         if self.window:
+            print("hiding")
             self.window.hide()
             self.window.deleteLater()
             self.window = None
+            print("succeed")
 
     def exit_program(self):
         global stopEvent
@@ -148,7 +150,10 @@ class Main:
     def run(self):
         self.checker.start()
         self.listener.start()
+        self.worker_thread.start()
         self.listener.signal_start.connect(self.start_lock)
+        self.worker_thread.signal_stop.connect(self.quit_lock)
+        self.worker_thread.signal_re.connect(self.reopen_window)
         print("开始监听！")
         sys.exit(self.app.exec_())
 
