@@ -4,9 +4,9 @@ import time
 import threading
 import face_utils
 import inotify.adapters
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QEvent, QPropertyAnimation
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QEvent
 from PyQt5.QtGui import QKeyEvent, QMouseEvent
-from PyQt5.QtWidgets import QApplication, QWidget
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
 
 
 checkInterval = 5
@@ -22,7 +22,21 @@ class FullscreenWindow(QWidget):
         super().__init__()
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setWindowState(Qt.WindowFullScreen)
-        self.animation = QPropertyAnimation(self, b"geometry")
+        self.setWindowTitle("Security Lock")
+
+        self.title_label = QLabel("\\\\\\W.T.F Security Lock Enabled\\\\\\")
+        self.title_label.setAlignment(Qt.AlignCenter)
+        self.title_label.setStyleSheet("color: red; font-size: 64px; " 
+                                       "font-weight: bold;")
+        
+        layout = QVBoxLayout()
+        layout.addStretch()
+        layout.addWidget(self.title_label)
+
+        self.setLayout(layout)
+
+    def isActive(self):
+        return super().isActiveWindow()
 
 
 class ListenThread(QThread):
@@ -90,7 +104,7 @@ class WorkerThread(QThread):
                     print("emit!")
                     self.signal_stop.emit()
                     print("emit done!")
-            time.sleep(.5)
+            time.sleep(.05)
 
 
 class Main:
@@ -117,8 +131,9 @@ class Main:
         self.close_window()
 
     def reopen_window(self):
-        self.close_window()
-        self.open_window()
+        if(not self.window.isActive()):
+            self.close_window()
+            self.open_window()
     
     def open_window(self):
         if not self.window or not self.window.isVisible():
@@ -148,6 +163,7 @@ class Main:
         self.app.quit()
 
     def run(self):
+        self.window = FullscreenWindow()
         self.checker.start()
         self.listener.start()
         self.worker_thread.start()
