@@ -1,3 +1,4 @@
+import os
 import cv2
 import sys
 import time
@@ -5,7 +6,7 @@ import threading
 import face_utils
 import inotify.adapters
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QEvent
-from PyQt5.QtGui import QKeyEvent, QMouseEvent
+from PyQt5.QtGui import QKeyEvent, QMouseEvent, QPixmap, QFont
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
 
 
@@ -15,6 +16,9 @@ isUser = False
 cap = cv2.VideoCapture(0)
 check_once = None
 lockOn = False
+countDown = 0
+defaultCountDown = 31
+picPerSec = 30
 
 
 class FullscreenWindow(QWidget):
@@ -25,15 +29,41 @@ class FullscreenWindow(QWidget):
         self.setWindowTitle("Security Lock")
 
         self.title_label = QLabel("\\\\\\W.T.F Security Lock Enabled\\\\\\")
-        self.title_label.setAlignment(Qt.AlignCenter)
+        self.title_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
         self.title_label.setStyleSheet("color: red; font-size: 64px; " 
                                        "font-weight: bold;")
         
+        self.image_label = QLabel()
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.pixmap = QPixmap("test.jpg") 
+
+        self.status_label = QLabel()
+        self.status_label.setAlignment(Qt.AlignHCenter | Qt.AlignBottom)
+        self.status_label.setFont(QFont("Arial", 18))
+        
         layout = QVBoxLayout()
-        layout.addStretch()
+        layout.addStretch(1)
         layout.addWidget(self.title_label)
+        layout.addStretch(2)
+        layout.addWidget(self.image_label)
+        layout.addStretch(2)
+        layout.addWidget(self.status_label)
 
         self.setLayout(layout)
+
+        self.refresh()
+
+    def refresh(self):
+        pixmap = QPixmap("test.jpg") #可能有竞态条件？
+        self.image_label.setPixmap(pixmap.scaledToWidth(600, 
+                                   Qt.SmoothTransformation))
+        global countDown
+        if(countDown > 0):
+            self.status_label.setText(
+                "⚠️Shutting Down in {} Seconds⚠️".format(countDown)
+            )
+        else:
+            self.status_label.setText("🔻Shutting down now...🔻")
 
     def isActive(self):
         return super().isActiveWindow()
@@ -54,13 +84,13 @@ class ListenThread(QThread):
         i = inotify.adapters.Inotify()
         i.add_watch('{}'.format(file_to_watch))
 
-        print("Listening for events in {}".format(file_to_watch))
+        # print("Listening for events in {}".format(file_to_watch))
         for event in i.event_gen(yield_nones=True):
             start_time = time.time()
             if(event):
                 (_, event_types, path, filename) = event
-                if 'IN_ACCESS' in event_types or 'IN_OPEN' in event_types:
-                    print("目录访问了: {}, {}".format(path, start_time))
+                if 'IN_ACCESS' in event_types:
+                    # print("Accessed: {}, {}".format(path, start_time))
                     self.check_face_once()
             else:
                 if stopEvent.wait(
@@ -69,17 +99,36 @@ class ListenThread(QThread):
                     break
 
 
-def check_face_loop():
+def count_down():
+    global countDown
+    global lockOn
+    while(lockOn):
+        #print("countdown-- ({}) {}".format(countDown, threading.get_ident()))
+        countDown -= 1
+        time.sleep(1)
+        if(countDown == -1):
+            # os.system("shutdown")
+            print("shutdown -h 0")
+            pass
+
+
+def read_cam():
     global cap
+    while(True):
+        start_time = time.time()
+        cap.grab()
+        ret, frame = cap.read()
+        if(ret):
+            cv2.imwrite("./test.jpg", frame)
+        time.sleep(max(0, 1/picPerSec - time.time() + start_time))
+
+
+def check_face_loop():
     global isUser
     global checkInterval
     while(True):
         start_time = time.time()
         
-        cap.grab()
-        ret, frame = cap.read()
-        if(ret):
-            cv2.imwrite("./test.jpg", frame)
         isUser = face_utils.check_face("./test.jpg")
 
         if stopEvent.wait(
@@ -87,24 +136,18 @@ def check_face_loop():
         ):
             break
 
-    print("check quited")
-
 
 class WorkerThread(QThread):
     signal_stop = pyqtSignal()
-    signal_re = pyqtSignal()
+    signal_tick = pyqtSignal()
 
     def run(self):
-        print("子线程启动！！")
         while(True):
             if(lockOn):
-                self.signal_re.emit()
-                print(isUser)
+                self.signal_tick.emit()
                 if(isUser):
-                    print("emit!")
                     self.signal_stop.emit()
-                    print("emit done!")
-            time.sleep(.05)
+            time.sleep(.033333)
 
 
 class Main:
@@ -114,21 +157,32 @@ class Main:
         self.worker_thread = WorkerThread()
         self.listener = ListenThread()
         self.checker = threading.Thread(target=check_face_loop)
+        self.counter = None
+        self.photographor = threading.Thread(target=read_cam)
     
     def start_lock(self):
         global lockOn
-        lockOn = True
-        self.open_window()
-        global checkInterval
-        checkInterval = 2
+        if(not lockOn):
+            lockOn = True
+            global checkInterval
+            checkInterval = 2
+            global countDown
+            countDown = defaultCountDown
+            # ！！这里有逻辑错误：可能执行这里时counter线程没结束，之后改（会改吗）？
+            self.counter = threading.Thread(target=count_down)
+            self.counter.start()
+            self.open_window()
 
     def quit_lock(self):
-        print("quit lock!")
         global lockOn
         global checkInterval
         lockOn = False
         checkInterval = 5
         self.close_window()
+
+    def tick(self):
+        self.reopen_window()
+        self.window.refresh()
 
     def reopen_window(self):
         if(not self.window.isActive()):
@@ -142,11 +196,9 @@ class Main:
 
     def close_window(self):
         if self.window:
-            print("hiding")
             self.window.hide()
             self.window.deleteLater()
             self.window = None
-            print("succeed")
 
     def exit_program(self):
         global stopEvent
@@ -164,13 +216,14 @@ class Main:
 
     def run(self):
         self.window = FullscreenWindow()
+        self.photographor.start()
         self.checker.start()
         self.listener.start()
         self.worker_thread.start()
         self.listener.signal_start.connect(self.start_lock)
         self.worker_thread.signal_stop.connect(self.quit_lock)
-        self.worker_thread.signal_re.connect(self.reopen_window)
-        print("开始监听！")
+        self.worker_thread.signal_tick.connect(self.tick)
+        sys.__stdout__.write("W.T.F Security Lock Booted!\n")
         sys.exit(self.app.exec_())
 
 
