@@ -38,8 +38,8 @@ def check_face(path):
                            detector_backend=detector_backend)
     if len(result[0]) > 0:
         print("found")
-        print("匹配图像路径：", result[0].iloc[0]['identity'])
-        print("距离（越小越像）：", result[0].iloc[0]['distance'])
+        #print("匹配图像路径：", result[0].iloc[0]['identity'])
+        #print("距离（越小越像）：", result[0].iloc[0]['distance'])
     else:
         print("Nah")
 

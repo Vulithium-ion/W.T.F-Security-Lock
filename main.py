@@ -1,7 +1,10 @@
+import os
+import cv2
 import time
 import threading
 import face_utils
 import inotify.adapters
+from PIL import Image
 
 
 CHECK_INTERVAL = 5
@@ -22,17 +25,33 @@ def listen():
             print(f"📂 目录被打开: {path}")
 
 
+def take_pic():
+    cap = cv2.VideoCapture(0)
+    cap.set(cv2.CAP_PROP_FPS, 30)
+    while(True):
+        start_time = time.time()
+        cap.grab()
+
+
 def check_face():
-    while(not stopEvent.is_set()):
+    cap = cv2.VideoCapture(0)
+    cap.set(cv2.CAP_PROP_FPS, 30)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    while(True):
         start_time = time.time()
         
-        face_utils.check_face_camera()
+        cap.grab()
+        ret, frame = cap.read()
+        if(ret):
+            cv2.imwrite("./test.jpg", frame)
+        face_utils.check_face("./test.jpg")
 
         if stopEvent.wait(
             timeout=max(0, CHECK_INTERVAL - time.time() + start_time)
         ):
             break
 
+    cap.release()
     print("quit")
 
 
