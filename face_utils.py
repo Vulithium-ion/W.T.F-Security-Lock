@@ -51,7 +51,7 @@ def check_face(path):
                             distance_metric="cosine",
                             detector_backend=detector_backend)
     if len(result[0]) > 0:
-        # print("found")
+        # print("user found")
         # print("path", result[0].iloc[0]['identity'])
         # print("distance:", result[0].iloc[0]['distance'])
         return True

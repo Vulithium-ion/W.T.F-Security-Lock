@@ -5,8 +5,8 @@ import time
 import threading
 import face_utils
 import inotify.adapters
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QEvent
-from PyQt5.QtGui import QKeyEvent, QMouseEvent, QPixmap, QFont
+from PyQt5.QtGui import QPixmap, QFont
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
 
 
@@ -19,6 +19,7 @@ lockOn = False
 countDown = 0
 defaultCountDown = 31
 picPerSec = 30
+fileLock = threading.Lock()
 
 
 class FullscreenWindow(QWidget):
@@ -30,10 +31,10 @@ class FullscreenWindow(QWidget):
 
         self.title_label = QLabel("\\\\\\W.T.F Security Lock Enabled\\\\\\")
         self.title_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-        self.title_label.setStyleSheet("color: red; font-size: 64px; " 
+        self.title_label.setStyleSheet("color: red; font-size: 72px; " 
                                        "font-weight: bold;")
         
-        self.image_label = QLabel()
+        self.image_label = QLabel() 
         self.image_label.setAlignment(Qt.AlignCenter)
         self.pixmap = QPixmap("test.jpg") 
 
@@ -53,8 +54,13 @@ class FullscreenWindow(QWidget):
 
         self.refresh()
 
+    def closeEvent(self, event):
+        event.ignore()
+
     def refresh(self):
-        pixmap = QPixmap("test.jpg") #可能有竞态条件？
+        global fileLock
+        with fileLock:
+            pixmap = QPixmap("test.jpg")
         self.image_label.setPixmap(pixmap.scaledToWidth(600, 
                                    Qt.SmoothTransformation))
         global countDown
@@ -89,7 +95,7 @@ class ListenThread(QThread):
             start_time = time.time()
             if(event):
                 (_, event_types, path, filename) = event
-                if 'IN_ACCESS' in event_types:
+                if 'IN_ACCESS' in event_types or 'IN_OPEN' in event_types:
                     # print("Accessed: {}, {}".format(path, start_time))
                     self.check_face_once()
             else:
@@ -107,8 +113,7 @@ def count_down():
         countDown -= 1
         time.sleep(1)
         if(countDown == -1):
-            # os.system("shutdown")
-            print("shutdown -h 0")
+            os.system("echo \"shutdown -h 0\"")
             pass
 
 
@@ -119,7 +124,8 @@ def read_cam():
         cap.grab()
         ret, frame = cap.read()
         if(ret):
-            cv2.imwrite("./test.jpg", frame)
+            with fileLock:
+                cv2.imwrite("./test.jpg", frame)
         time.sleep(max(0, 1/picPerSec - time.time() + start_time))
 
 
