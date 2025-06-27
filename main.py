@@ -2,6 +2,7 @@ import os
 import cv2
 import sys
 import time
+import uuid
 import signal
 import threading
 import face_utils
@@ -213,7 +214,15 @@ class Main:
     
     def start_lock(self):
         global lockOn
+        global fileLock
+        global cap
         if(not lockOn):
+            cap.grab()
+            ret, frame = cap.read()
+            if(ret):
+                with fileLock:
+                    cv2.imwrite(
+                    f"./pic/attacker/{str(uuid.uuid4())}.jpg", frame)
             lockOn = True
             global checkInterval
             checkInterval = 2
