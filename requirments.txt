@@ -1,1 +1,5 @@
-懒 得 写
+cv2
+inotify
+PyQt5
+Pillow
+deepface
