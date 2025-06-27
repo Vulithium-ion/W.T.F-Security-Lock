@@ -2,14 +2,17 @@ import os
 import cv2
 import sys
 import time
+import signal
 import threading
 import face_utils
+import subprocess
 import inotify.adapters
 from PyQt5.QtGui import QPixmap, QFont
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
 
 
+PATH = "/home/Fox/Secret Files/Learning Material/"
 checkInterval = 5
 stopEvent = threading.Event()
 isUser = False
@@ -20,6 +23,7 @@ countDown = 0
 defaultCountDown = 31
 picPerSec = 30
 fileLock = threading.Lock()
+cpLock = threading.Lock()
 
 
 class FullscreenWindow(QWidget):
@@ -77,6 +81,40 @@ class FullscreenWindow(QWidget):
 
 class ListenThread(QThread):
     signal_start = pyqtSignal()
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.trds = []
+
+    def kill_cp(self):
+        #print("hi")
+        for root, _, files in os.walk(PATH):
+            for f in files:
+                self.kill_cp_file(os.path.join(root, f))
+        pass
+
+    def kill_cp_file(self, target_file):
+        #写成这样我也是神人了
+        #恰特GPT也是五字神人
+        try:
+            output = subprocess.check_output(["lsof", target_file], 
+                                                  text=True)
+        except subprocess.CalledProcessError:
+            print(f"not using: {target_file}")
+            return
+        
+        for line in output.splitlines()[1:]:
+            parts =  line.split()
+            if(len(parts) < 2):
+                continue
+            pid = int(parts[1])
+            command = parts[0]
+            if(command == "cp"):
+                print("found cp")
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    continue
 
     def check_face_once(self):
         global lockOn
@@ -86,18 +124,25 @@ class ListenThread(QThread):
 
     def run(self):
         global check_once
-        file_to_watch = '/home/Fox/code/tmp/'
         i = inotify.adapters.Inotify()
-        i.add_watch('{}'.format(file_to_watch))
+        i.add_watch('{}'.format(PATH))
 
         # print("Listening for events in {}".format(file_to_watch))
         for event in i.event_gen(yield_nones=True):
             start_time = time.time()
+            #线程可能有风险？
+            while(len(self.trds)):
+                if(not self.trds[0].is_alive()):
+                    self.trds[0].join()
+                    self.trds.pop(0)
             if(event):
                 (_, event_types, path, filename) = event
-                if 'IN_ACCESS' in event_types or 'IN_OPEN' in event_types:
+                if "IN_ACCESS" in event_types or "IN_OPEN" in event_types:
                     # print("Accessed: {}, {}".format(path, start_time))
                     self.check_face_once()
+                    if(not isUser):
+                        self.trds.append(threading.Thread(target=self.kill_cp))
+                        self.trds[-1].start()
             else:
                 if stopEvent.wait(
                     timeout=max(0, .01 - time.time() + start_time)
@@ -174,7 +219,7 @@ class Main:
             checkInterval = 2
             global countDown
             countDown = defaultCountDown
-            # ！！这里有逻辑错误：可能执行这里时counter线程没结束，之后改（会改吗）？
+            # ！这里有逻辑错误：可能执行这里时counter线程没结束，之后改（会改吗）？
             self.counter = threading.Thread(target=count_down)
             self.counter.start()
             self.open_window()
