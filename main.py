@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
 
 
 PATH = "/home/Fox/Secret Files/Learning Material/"
-checkInterval = 5
+checkInterval = 4
 stopEvent = threading.Event()
 isUser = False
 cap = cv2.VideoCapture(0)
@@ -131,18 +131,18 @@ class ListenThread(QThread):
         for event in i.event_gen(yield_nones=True):
             start_time = time.time()
             #线程可能有风险？
-            while(len(self.trds)):
-                if(not self.trds[0].is_alive()):
-                    self.trds[0].join()
-                    self.trds.pop(0)
+            # while(len(self.trds)):
+            #     if(not self.trds[0].is_alive()):
+            #         self.trds[0].join()
+            #         self.trds.pop(0)
             if(event):
                 (_, event_types, path, filename) = event
                 if "IN_ACCESS" in event_types or "IN_OPEN" in event_types:
                     # print("Accessed: {}, {}".format(path, start_time))
                     self.check_face_once()
-                    if(not isUser):
-                        self.trds.append(threading.Thread(target=self.kill_cp))
-                        self.trds[-1].start()
+                    # if(not isUser):
+                    #     self.trds.append(threading.Thread(target=self.kill_cp))
+                    #     self.trds[-1].start()
             else:
                 if stopEvent.wait(
                     timeout=max(0, .01 - time.time() + start_time)
